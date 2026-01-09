@@ -1,14 +1,28 @@
 
-import { InventoryItem, Tool, AssetStatus } from './types';
+import { InventoryItem, Tool } from './types';
 
 export const TECHS = ['Bilal', 'Asad', 'Taimoor', 'Saboor'];
 
+export const ZONE_MAP: Record<string, 'A' | 'B' | 'C' | 'D'> = {
+  'Bilal': 'A',
+  'Asad': 'B',
+  'Taimoor': 'C',
+  'Saboor': 'D'
+};
+
+export const ZONE_LABELS = {
+  'A': 'Ground & Basement',
+  'B': 'First Floor',
+  'C': 'Second Floor',
+  'D': 'Third Floor & Roof'
+};
+
 export const DEFAULT_GAS: InventoryItem[] = [
-    { name: 'R22', kg: 50, type: 'AC' },
-    { name: 'R410A', kg: 50, type: 'AC' },
+    { name: 'R22', kg: 45, type: 'AC' },
+    { name: 'R410A', kg: 38, type: 'AC' },
     { name: 'R32', kg: 50, type: 'AC' },
-    { name: 'R134a', kg: 50, type: 'Fridge' },
-    { name: 'R600a', kg: 50, type: 'Fridge' }
+    { name: 'R134a', kg: 22, type: 'Fridge' },
+    { name: 'R600a', kg: 12, type: 'Fridge' }
 ];
 
 export const DEFAULT_TOOLS: Tool[] = [
@@ -26,4 +40,4 @@ export const DEFAULT_TOOLS: Tool[] = [
     { name: "Tool Bag", qty: 2 }
 ];
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzgb--GW4m8j9xFhki5HIp81dMaeM5jD2NFm1SBOiTZyG0gEnYR4mLO_lsA71tk55fp/exec";
+export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw6yuSq4mqX42HeSFVGbvlZF7RtN8lyIt1zHqw-kM-cViJuu2NTCvUZ4rBedeOCOtQP/exec";

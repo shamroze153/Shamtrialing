@@ -3,7 +3,8 @@ export enum AssetStatus {
   ACTIVE = 'Active',
   MAINTENANCE = 'Maintenance',
   SPARE = 'Spare',
-  DISPOSED = 'Disposed'
+  DISPOSED = 'Disposed',
+  OBSOLETE = 'Obsolete'
 }
 
 export enum TicketStatus {
@@ -24,6 +25,11 @@ export interface Asset {
   location: string;
   status: AssetStatus;
   category?: string;
+  capacity?: string;
+  floor?: string;
+  room?: string;
+  campus?: string;
+  zone?: 'A' | 'B' | 'C' | 'D';
 }
 
 export interface Ticket {
@@ -37,6 +43,13 @@ export interface Ticket {
   severity: TicketSeverity;
   assignedTo: string;
   timestamp: string;
+  date?: string;
+  category?: string;
+  resolvedBy?: string;
+  resolutionType?: 'Minor' | 'Major';
+  faultType?: 'Compressor' | 'Gas Leakage' | 'Other';
+  gasUsed?: string;
+  gasAmount?: number;
 }
 
 export interface Technician {
@@ -44,6 +57,8 @@ export interface Technician {
   merit: number;
   demerit: number;
   isPresent: boolean;
+  zone: 'A' | 'B' | 'C' | 'D';
+  bonusPoints: number;
 }
 
 export interface InventoryItem {

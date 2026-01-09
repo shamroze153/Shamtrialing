@@ -1,5 +1,7 @@
 {
-  "name": "DISRUPT FM Portal v7.0 AI",
-  "description": "A premium facilities management dashboard featuring real-time asset tracking, AI-powered issue reporting, and technician performance analytics.",
-  "requestFramePermissions": []
+  "name": "DISRUPT FM Portal v8.0 Elite",
+  "description": "Premium facilities management dashboard featuring real-time asset tracking, AI-powered issue reporting, and zone-based technician performance analytics.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }
