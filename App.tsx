@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Asset, Ticket, Technician, InventoryItem, Tool, AssetStatus, TicketStatus, TicketSeverity } from './types';
-import { TECHS, DEFAULT_GAS, DEFAULT_TOOLS, WEB_APP_URL, ZONE_MAP } from './constants';
+import { Asset, Ticket, Technician, InventoryItem, AssetStatus, TicketStatus, TicketSeverity } from './types';
+import { TECHS, DEFAULT_GAS, WEB_APP_URL, ZONE_MAP } from './constants';
 import DashboardView from './components/DashboardView';
 import OpsView from './components/OpsView';
 import TechView from './components/TechView';
@@ -15,7 +15,7 @@ const App: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
     const [prefilledAssetId, setPrefilledAssetId] = useState<string | undefined>();
-    const [aiInsight, setAiInsight] = useState<string>("Infrastructure Diagnostic: System synchronization active. Real-time telemetry linked to Tab 01.");
+    const [aiInsight, setAiInsight] = useState<string>("System Ready: Infrastructure synchronized with AC_HVAC_Daily_Checklist master tab.");
 
     const [assets, setAssets] = useState<Asset[]>([]);
     const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -60,13 +60,11 @@ const App: React.FC = () => {
             const allTickets: Ticket[] = stats.complaints || [];
             setTickets(allTickets);
             
-            // Sync local checklist state with remote history
             if (stats.checklists || stats.history) {
                 const history = stats.checklists || stats.history;
                 const restoredChecks = new Set<string>();
                 history.forEach((entry: any) => {
                     const assetTag = entry.assetTag || entry.tag || entry.asset_tag;
-                    // Important: Look for 'task' or 'type' to distinguish between daily/monthly/quarterly
                     const taskType = entry.task || entry.task_type || entry.type || 'Daily Routine';
                     const targetAsset = mappedAssets.find((a: any) => a.tag === assetTag);
                     if (targetAsset) {
@@ -76,27 +74,66 @@ const App: React.FC = () => {
                 setCheckedAssetIds(restoredChecks);
             }
             
-            const updatedTechs = technicians.map(tech => {
-                const meritCount = allTickets.filter(t => t.assignedTo?.includes(tech.name) && t.status === TicketStatus.RESOLVED && t.location !== 'Admin Panel').length;
-                const demeritLogs = allTickets.filter(t => t.location === 'Admin Panel' && t.assignedTo === tech.name);
-                let demeritSum = 0;
-                demeritLogs.forEach(log => {
-                    const match = log.details.match(/-(\d+) pts/);
-                    if (match) demeritSum += parseInt(match[1]);
-                });
-                return { ...tech, merit: meritCount, demerit: demeritSum };
-            });
-            setTechnicians(updatedTechs);
-            
-            setAiInsight(`Cloud Sync: 100%. AC_HVAC_Daily_Checklist tab is the primary log target.`);
-            showToast("System Synced ✅");
+            setAiInsight(`Cloud Pulse Active. All logs routing to Tab 01.`);
+            showToast("Sync Successful ✅");
         } catch (error) {
             console.error("Refresh Error:", error);
-            showToast("Sync Error");
+            showToast("Cloud Offline ⚠");
         } finally { setIsRefreshing(false); }
     }, [technicians, showToast]);
 
     useEffect(() => { if (screen === 'app') refreshData(); }, [screen]);
+
+    const handleMarkChecklistOk = async (assetId: number, technicianName: string, category: string = 'Daily Routine') => {
+        const asset = assets.find(a => a.id === assetId);
+        if (!asset) return;
+        
+        try {
+            const now = new Date();
+            const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+            
+            // UNIFIED ROUTING LOGIC
+            const TARGET_TAB = 'AC_HVAC_Daily_Checklist';
+
+            const fd = new FormData();
+            fd.append('action', 'checklist');
+            fd.append('category', TARGET_TAB); // Routing Key
+            fd.append('sheetName', TARGET_TAB); // Routing Key 2
+            
+            fd.append('assetTag', asset.tag);
+            fd.append('asset_tag', asset.tag);
+            fd.append('technician', technicianName);
+            fd.append('tech', technicianName);
+            
+            fd.append('task', category); // Preserves original type (Daily/Monthly/Quarterly)
+            fd.append('type', category); 
+            fd.append('task_type', category);
+            
+            fd.append('status', 'OK');
+            fd.append('date', dateStr);
+            fd.append('formatted_date', dateStr);
+            fd.append('timestamp', now.toISOString());
+
+            const response = await fetch(WEB_APP_URL, { method: 'POST', body: fd, redirect: 'follow' });
+            const result = await response.json();
+            
+            if (result.result === 'success' || result.status === 'success') {
+                setCheckedAssetIds(prev => {
+                  const next = new Set(prev);
+                  next.add(`${assetId}-${category}`);
+                  return next;
+                });
+                showToast("Tab 01 Logged ✅");
+            }
+        } catch (e) {
+            showToast("Local Override Active ⚠");
+            setCheckedAssetIds(prev => {
+                const next = new Set(prev);
+                next.add(`${assetId}-${category}`);
+                return next;
+            });
+        }
+    };
 
     const handleNewTicket = async (ticket: Omit<Ticket, 'id' | 'timestamp'>) => {
         try {
@@ -111,11 +148,11 @@ const App: React.FC = () => {
             const resp = await fetch(WEB_APP_URL, { method: 'POST', body: fd, redirect: 'follow' });
             const res = await resp.json();
             if (res.result === 'success') {
-                showToast("Job Logged 🚀");
+                showToast("Incident Logged 🚀");
                 refreshData();
             }
         } catch (e) {
-            showToast("Server Link Failed");
+            showToast("Network Error");
         }
     };
 
@@ -135,115 +172,10 @@ const App: React.FC = () => {
             if (res.gas && res.amount) {
                 setInventory(prev => prev.map(item => item.name.includes(res.gas!) ? { ...item, kg: Math.max(0, item.kg - res.amount!) } : item));
             }
-            showToast("Resolved & Synced ✅");
+            showToast("Job Completed ✅");
             refreshData();
         } catch (e) {
-            showToast("Update Error");
-        }
-    };
-
-    const handleMarkChecklistOk = async (assetId: number, technicianName: string, category: string = 'Daily Routine') => {
-        const asset = assets.find(a => a.id === assetId);
-        if (!asset) return;
-        
-        try {
-            const now = new Date();
-            // DD/MM/YYYY for precise Google Sheet parsing
-            const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-            const syncId = `SYNC-${now.getTime()}-${assetId}`;
-            
-            // CORE ROUTING RULE: Everything goes to Tab 01
-            const UNIFIED_TAB_NAME = 'AC_HVAC_Daily_Checklist';
-
-            const fd = new FormData();
-            fd.append('action', 'checklist');
-            
-            // ROUTING KEYS: Force backend to use the specific tab
-            fd.append('category', UNIFIED_TAB_NAME);
-            fd.append('sheetName', UNIFIED_TAB_NAME);
-            fd.append('tabName', UNIFIED_TAB_NAME);
-            
-            // IDENTITY KEYS
-            fd.append('technician', technicianName);
-            fd.append('tech', technicianName);
-            fd.append('technician_name', technicianName);
-            
-            // ASSET KEYS
-            fd.append('assetTag', asset.tag);
-            fd.append('tag', asset.tag);
-            fd.append('asset_tag', asset.tag);
-            fd.append('location', asset.location);
-            fd.append('room', asset.room || 'N/A');
-            
-            // TASK DIFFERENTIATION (Daily / Monthly / Quarterly)
-            fd.append('task', category);
-            fd.append('type', category);
-            fd.append('task_type', category);
-            fd.append('taskCategory', category);
-            
-            // DATA STATUS
-            fd.append('status', 'OK');
-            fd.append('workingStatus', 'OK');
-            fd.append('working_status', 'OK');
-            fd.append('condition', 'Verified OK');
-            
-            // TIMESTAMP & SYNC
-            fd.append('date', dateStr);
-            fd.append('formatted_date', dateStr);
-            fd.append('timestamp', now.toISOString());
-            fd.append('syncId', syncId);
-            fd.append('sync_id', syncId);
-
-            const response = await fetch(WEB_APP_URL, { method: 'POST', body: fd, redirect: 'follow' });
-            const result = await response.json();
-            
-            if (result.result === 'success' || result.status === 'success') {
-                setCheckedAssetIds(prev => {
-                  const next = new Set(prev);
-                  next.add(`${assetId}-${category}`);
-                  return next;
-                });
-                showToast("Tab 01 Updated ✅");
-            } else {
-                throw new Error("Server Rejection");
-            }
-        } catch (e) {
-            console.error("Checklist Error:", e);
-            showToast("Local Only (Sync Pending) ⚠");
-            // Still update UI to show it's "done"
-            setCheckedAssetIds(prev => {
-                const next = new Set(prev);
-                next.add(`${assetId}-${category}`);
-                return next;
-            });
-        }
-    };
-
-    const handleIssueDemerit = async (name: string, pts: number, reason: string) => {
-        try {
-            const fd = new FormData();
-            fd.append('action', 'complain');
-            fd.append('category', 'AC / HVAC');
-            fd.append('location', 'Admin Panel');
-            fd.append('details', `AUDIT: ${reason} (-${pts} pts)`);
-            fd.append('assetTag', 'ADMIN-LOG');
-            fd.append('assignedTech', name);
-            
-            const resp = await fetch(WEB_APP_URL, { method: 'POST', body: fd, redirect: 'follow' });
-            const res = await resp.json();
-            
-            if (res.result === 'success' && res.rowIndex) {
-                const fdClose = new FormData();
-                fdClose.append('action', 'close_complaint');
-                fdClose.append('rowIndex', String(res.rowIndex));
-                fdClose.append('technician', 'System Audit');
-                fdClose.append('details', 'Audit Logged');
-                await fetch(WEB_APP_URL, { method: 'POST', body: fdClose, redirect: 'follow' });
-            }
-            showToast("Audit Penalty Applied ⚠");
-            refreshData();
-        } catch (e) {
-            showToast("Sync Failed");
+            showToast("Resolution Failed");
         }
     };
 
@@ -256,10 +188,10 @@ const App: React.FC = () => {
                         <span className="text-indigo-400 font-bold text-[10px] uppercase tracking-[0.3em]">Portal 8.0 Elite</span>
                     </div>
                     <h1 className="text-6xl font-black text-white mb-4 tracking-tighter italic">FM CONTROL</h1>
-                    <p className="text-slate-500 text-[10px] mb-12 font-bold uppercase tracking-widest">Enterprise Facility Infrastructure</p>
+                    <p className="text-slate-500 text-[10px] mb-12 font-bold uppercase tracking-widest">Enterprise Infrastructure v8.0.4</p>
                     <div className="flex flex-col items-center gap-3">
-                        <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center text-white text-3xl shadow-2xl transition-all active:scale-90 border border-indigo-400/20"><i className="fas fa-fingerprint"></i></div>
-                        <span className="text-slate-400 text-[9px] font-black uppercase tracking-[0.5em] mt-2">Biometric Entry</span>
+                        <div className="w-20 h-20 bg-indigo-600 rounded-[2.5rem] flex items-center justify-center text-white text-3xl shadow-2xl transition-all active:scale-90 border border-indigo-400/20"><i className="fas fa-fingerprint"></i></div>
+                        <span className="text-slate-400 text-[9px] font-black uppercase tracking-[0.5em] mt-4">Scan to Enter</span>
                     </div>
                 </div>
             </div>
@@ -269,25 +201,25 @@ const App: React.FC = () => {
     if (screen === 'menu') {
         return (
             <div className="h-screen bg-slate-50 p-8 flex flex-col justify-center space-y-6 fade-in">
-                <div className="mb-10">
-                    <h2 className="text-4xl font-black text-slate-900 leading-tight italic">Elite <span className="text-indigo-600">Sync</span></h2>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-1">Authenticated Management</p>
+                <div className="mb-10 text-center">
+                    <h2 className="text-4xl font-black text-slate-900 leading-tight italic uppercase tracking-tighter">Elite <span className="text-indigo-600">Control</span></h2>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-1">Authorized Management Access</p>
                 </div>
                 <div className="grid gap-5">
                     {[
-                        { id: 'dashboard', icon: 'fa-gauge-high', label: 'Command', desc: 'Global Intelligence', bg: 'bg-indigo-600' },
-                        { id: 'ops', icon: 'fa-bolt-lightning', label: 'Incidents', desc: 'Repair Workflows', bg: 'bg-rose-600' },
-                        { id: 'tech', icon: 'fa-network-wired', label: 'Specialists', desc: 'Field Force Ops', bg: 'bg-emerald-600' },
+                        { id: 'dashboard', icon: 'fa-gauge-high', label: 'Command', desc: 'Real-time Telemetry', bg: 'bg-indigo-600' },
+                        { id: 'ops', icon: 'fa-bolt-lightning', label: 'Incidents', desc: 'Incident Workflows', bg: 'bg-rose-600' },
+                        { id: 'tech', icon: 'fa-network-wired', label: 'Field Force', desc: 'Specialist Management', bg: 'bg-emerald-600' },
                     ].map(v => (
-                        <button key={v.id} onClick={() => { setView(v.id as AppView); setScreen('app'); }} className="w-full bg-white p-8 rounded-[2.5rem] shadow-sm border-2 border-slate-50 flex items-center gap-8 group active:scale-[0.98] transition-all hover:border-indigo-100">
-                            <div className={`w-16 h-16 rounded-3xl flex items-center justify-center text-2xl text-white ${v.bg} shadow-lg transition-transform group-hover:scale-110`}>
+                        <button key={v.id} onClick={() => { setView(v.id as AppView); setScreen('app'); }} className="w-full bg-white p-8 rounded-[3rem] shadow-sm border border-slate-200/60 flex items-center gap-6 group active:scale-[0.98] transition-all hover:border-indigo-200">
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-xl text-white ${v.bg} shadow-lg transition-transform group-hover:scale-110`}>
                                 <i className={`fas ${v.icon}`}></i>
                             </div>
                             <div className="text-left flex-1">
-                                <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">{v.label}</h3>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">{v.desc}</p>
+                                <h3 className="text-lg font-black text-slate-900 uppercase tracking-tighter italic">{v.label}</h3>
+                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">{v.desc}</p>
                             </div>
-                            <i className="fas fa-chevron-right text-slate-200 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all"></i>
+                            <i className="fas fa-chevron-right text-slate-200 group-hover:text-indigo-500 transition-all"></i>
                         </button>
                     ))}
                 </div>
@@ -298,38 +230,41 @@ const App: React.FC = () => {
     return (
         <div className="h-screen flex flex-col bg-slate-50 relative fade-in overflow-hidden">
             <header className="bg-white border-b border-slate-100 px-8 py-6 flex justify-between items-center z-50 sticky top-0 shadow-sm">
-                <button onClick={() => setScreen('menu')} className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white active:scale-90 transition-transform shadow-lg"><i className="fas fa-arrow-left"></i></button>
+                <button onClick={() => setScreen('menu')} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white active:scale-90 transition-transform"><i className="fas fa-arrow-left"></i></button>
                 <div className="text-center">
-                    <h2 className="text-lg font-black text-slate-900 uppercase tracking-tighter italic">{view === 'tech' ? 'Specialists' : view === 'ops' ? 'Incidents' : 'Command'}</h2>
-                    <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest mt-0.5">Session ID: 772-X</p>
+                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-tighter italic">{view} System</h2>
+                    <div className="flex items-center gap-1.5 justify-center">
+                        <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest">Active Link</p>
+                    </div>
                 </div>
-                <button onClick={refreshData} className={`w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 active:scale-95 transition-all shadow-sm ${isRefreshing?'animate-spin text-indigo-600':''}`}><i className="fas fa-rotate"></i></button>
+                <button onClick={refreshData} className={`w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 transition-all ${isRefreshing?'animate-spin text-indigo-600':''}`}><i className="fas fa-rotate"></i></button>
             </header>
 
             <div className="flex-1 overflow-hidden">
-                {view === 'dashboard' && <DashboardView aiInsight={aiInsight} assets={assets} tickets={tickets} inventory={inventory} technicians={technicians} checkedAssetIds={checkedAssetIds} onUpdateGas={(n,k) => { setInventory(prev=>prev.map(i=>i.name===n?{...i,kg:k}:i)); showToast(`Vault: ${n} Synced`); }} onIssueDemerit={handleIssueDemerit} />}
+                {view === 'dashboard' && <DashboardView aiInsight={aiInsight} assets={assets} tickets={tickets} inventory={inventory} technicians={technicians} checkedAssetIds={checkedAssetIds} onUpdateGas={(n,k)=>setInventory(prev=>prev.map(i=>i.name===n?{...i,kg:k}:i))} onIssueDemerit={()=>{}} />}
                 {view === 'ops' && <OpsView assets={assets} tickets={tickets} technicians={technicians} onNewTicket={handleNewTicket} onResolveTicket={handleResolveTicket} prefillAssetId={prefilledAssetId} />}
-                {view === 'tech' && <TechView technicians={technicians} tickets={tickets} assets={assets} checkedAssetIds={checkedAssetIds} onToggleAttendance={(n)=>setTechnicians(prev=>prev.map(t=>t.name===n?{...t,isPresent:!t.isPresent}:t))} onTakeover={(abs,cov) => { setTechnicians(prev=>prev.map(t=>t.name===cov?{...t,bonusPoints:t.bonusPoints+1}:t)); showToast(`${cov} covering Zone ${ZONE_MAP[abs]}`); }} onMarkChecklistOk={handleMarkChecklistOk} onReportChecklistIssue={(id)=>{ setPrefilledAssetId(String(id)); setView('ops'); }} onResolveTicket={handleResolveTicket} />}
+                {view === 'tech' && <TechView technicians={technicians} tickets={tickets} assets={assets} checkedAssetIds={checkedAssetIds} onToggleAttendance={(n)=>setTechnicians(prev=>prev.map(t=>t.name===n?{...t,isPresent:!t.isPresent}:t))} onTakeover={()=>{}} onMarkChecklistOk={handleMarkChecklistOk} onReportChecklistIssue={(id)=>{ setPrefilledAssetId(String(id)); setView('ops'); }} onResolveTicket={handleResolveTicket} />}
             </div>
 
-            <nav className="bg-white border-t border-slate-100 px-8 py-6 z-50 fixed bottom-0 left-0 right-0 flex justify-around items-center">
+            <nav className="bg-white border-t border-slate-100 px-8 py-5 z-50 fixed bottom-0 left-0 right-0 flex justify-around items-center backdrop-blur-md bg-white/80">
                 {[
                   { id: 'dashboard', icon: 'fa-gauge', label: 'Stats' },
-                  { id: 'ops', icon: 'fa-bolt', label: 'Alerts' },
+                  { id: 'ops', icon: 'fa-bolt', label: 'Tasks' },
                   { id: 'tech', icon: 'fa-users', label: 'Force' },
                 ].map(nav => (
                   <button 
                     key={nav.id} 
                     onClick={() => { setView(nav.id as AppView); setPrefilledAssetId(undefined); }} 
-                    className={`flex flex-col items-center gap-2 transition-all py-2 px-6 rounded-2xl ${view===nav.id?'text-indigo-600 bg-indigo-50 font-black':'text-slate-300'}`}
+                    className={`flex flex-col items-center gap-1.5 transition-all py-1.5 px-6 rounded-2xl ${view===nav.id?'text-indigo-600 bg-indigo-50 font-black':'text-slate-300'}`}
                   >
-                    <i className={`fas ${nav.icon} text-xl`}></i>
-                    <span className="text-[9px] font-black uppercase tracking-widest">{nav.label}</span>
+                    <i className={`fas ${nav.icon} text-lg`}></i>
+                    <span className="text-[8px] font-black uppercase tracking-widest">{nav.label}</span>
                   </button>
                 ))}
             </nav>
 
-            {toast && <div className="fixed bottom-28 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-4 rounded-3xl shadow-2xl font-black text-[10px] uppercase tracking-[0.2em] animate-fade-in z-[200] border border-white/10 backdrop-blur-md">{toast}</div>}
+            {toast && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-3 rounded-full shadow-2xl font-black text-[9px] uppercase tracking-widest animate-fade-in z-[200] border border-white/10">{toast}</div>}
         </div>
     );
 };
